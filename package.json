@@ -1,0 +1,22 @@
+{
+  "name": "debs",
+  "version": "1.0.0",
+  "bin": "bin/debs",
+  "scripts": {
+    "preinstall": "node scripts/preinstall.js",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.ibm.com/ReaQta-Frontend/debs.git",
+    "directory": "debs"
+  },
+  "description": "debs is a tool for inspecting old and deprecated packages.",
+  "files": [
+    "bin/debs",
+    "scripts/preinstall.js",
+    "scripts/postinstall.js",
+    "Cargo.toml",
+    "src/*"
+  ]
+}
