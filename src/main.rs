@@ -6,8 +6,9 @@ mod package_json_parser;
 mod registry;
 mod types;
 
-use deprecated::{deprecated, deprecated_prod};
-use old::old;
+use deprecated::deprecated_monorepo;
+use old::old_monorepo;
+use package_json_parser::parse_package_json;
 use registry::VersionObjectWithDeprecated;
 use types::OldPkgDetails;
 
@@ -44,25 +45,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_one::<bool>("production")
                 .expect("defaulted in clap");
 
-            let old_pkgs = old(since.parse::<u32>().unwrap_or(4)).await?;
+            let pkg_json = parse_package_json(None)?;
 
-            if *production_pkgs_only {
-                output_old(&old_pkgs.0, None);
-
-                let num_old_pkgs = old_pkgs.0.len();
-
-                println!("Total: {num_old_pkgs} old production dependencies");
+            if pkg_json.workspaces.is_none() {
+                finalize_old(
+                    since.parse::<u32>().unwrap_or(4),
+                    *production_pkgs_only,
+                    None,
+                    None,
+                    false
+                )
+                .await?
             } else {
-                output_old(&old_pkgs.0, Some("Production Dependencies:"));
-                output_old(&old_pkgs.1, Some("Development Dependencies:"));
+                for workspace in pkg_json.workspaces.unwrap() {
+                    println!("{} old packages:", workspace);
+                    println!();
 
-                let num_old_prods = old_pkgs.0.len();
-
-                let num_old_devs = old_pkgs.1.len();
-
-                println!(
-                    "Total: {num_old_prods} old dependencies, {num_old_devs} old dev dependencies"
-                );
+                    finalize_old(
+                        since.parse::<u32>().unwrap_or(4),
+                        *production_pkgs_only,
+                        Some(&workspace),
+                        None,
+                        workspace == "frontend"
+                    )
+                    .await?
+                }
             }
         }
         Some(("deprecated", sub_matches)) => {
@@ -70,28 +77,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_one::<bool>("production")
                 .expect("defaulted in clap");
 
-            if *production_pkgs_only {
-                let deprecated = deprecated_prod().await?;
+            let pkg_json = parse_package_json(None)?;
 
-                output_deprecated(&deprecated, None);
-
-                let num_depr_pkgs = deprecated.len();
-
-                println!("Total: {num_depr_pkgs} deprecated production dependencies");
+            if pkg_json.workspaces.is_none() {
+                finalize_deprecated(*production_pkgs_only, None, None, false).await?
             } else {
-                let (prod_depr, dev_depr) = deprecated().await?;
+                for workspace in pkg_json.workspaces.unwrap() {
+                    println!("{} deprecated packages:", workspace);
+                    println!();
 
-                output_deprecated(&prod_depr, Some("Production Dependencies:"));
-                output_deprecated(&dev_depr, Some("Development Dependencies:"));
-
-                let num_depr_prods = prod_depr.len();
-
-                let num_depr_devs = dev_depr.len();
-
-                println!(
-                    "Total: {num_depr_prods} deprecated dependencies, {num_depr_devs} deprecated dev dependencies"
-                );
-            };
+                    finalize_deprecated(*production_pkgs_only, Some(&workspace), None, workspace == "frontend").await?
+                }
+            }
         }
         _ => unreachable!(),
     }
@@ -99,9 +96,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// TODO よりいい関数名がないか？
+async fn finalize_old(
+    since: u32,
+    production_pkgs_only: bool,
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+    in_frontend: bool
+) -> Result<(), Box<dyn std::error::Error>> {
+    let old_pkgs = old_monorepo(since, path_pkg_json, path_lock_json, in_frontend).await?;
+
+    if production_pkgs_only {
+        output_old(&old_pkgs.0, None);
+
+        let num_old_pkgs = old_pkgs.0.len();
+
+        println!("Total: {num_old_pkgs} old production dependencies");
+        println!();
+    } else {
+        output_old(&old_pkgs.0, Some("Production Dependencies:"));
+        output_old(&old_pkgs.1, Some("Development Dependencies:"));
+
+        let num_old_prods = old_pkgs.0.len();
+
+        let num_old_devs = old_pkgs.1.len();
+
+        println!("Total: {num_old_prods} old dependencies, {num_old_devs} old dev dependencies");
+        println!();
+    }
+
+    Ok(())
+}
+
+// TODO よりいい関数名がないか？
+/// # Arguments
+///
+/// * `json_path` - An optional &str holding the path to the package.json and package-lock.json. Needs to end with '/'.
+///
+async fn finalize_deprecated(
+    production_pkgs_only: bool,
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+    in_frontend: bool
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (prod_depr, dev_depr) = deprecated_monorepo(path_pkg_json, path_lock_json, in_frontend).await?;
+
+    if production_pkgs_only {
+
+        output_deprecated(&prod_depr, None);
+
+        let num_depr_pkgs = prod_depr.len();
+
+        println!("Total: {num_depr_pkgs} deprecated production dependencies");
+        println!();
+    } else {
+
+        output_deprecated(&prod_depr, Some("Production Dependencies:"));
+        output_deprecated(&dev_depr, Some("Development Dependencies:"));
+
+        let num_depr_prods = prod_depr.len();
+
+        let num_depr_devs = dev_depr.len();
+
+        println!(
+            "Total: {num_depr_prods} deprecated dependencies, {num_depr_devs} deprecated dev dependencies"
+        );
+        println!();
+    };
+
+    Ok(())
+}
+
 // Utils
 
-fn output_old(old_pkgs: &Vec<OldPkgDetails>, tag_line: Option<&str>) {
+fn output_old(pkgs: &Vec<OldPkgDetails>, tag_line: Option<&str>) {
+    if pkgs.is_empty() {
+        return
+    }
+
     if tag_line.is_some() {
         println!("{}", tag_line.unwrap());
         println!();
@@ -116,7 +188,7 @@ fn output_old(old_pkgs: &Vec<OldPkgDetails>, tag_line: Option<&str>) {
         date_latest_version,
         age_latest_version,
         ..
-    } in old_pkgs
+    } in pkgs
     {
         let simple_date_version = date_version.format("%d/%m/%Y");
 
@@ -133,6 +205,10 @@ fn output_old(old_pkgs: &Vec<OldPkgDetails>, tag_line: Option<&str>) {
 }
 
 fn output_deprecated(pkgs: &Vec<VersionObjectWithDeprecated>, tag_line: Option<&str>) {
+    if pkgs.is_empty() {
+        return
+    }
+
     if tag_line.is_some() {
         println!("{}", tag_line.unwrap());
         println!();

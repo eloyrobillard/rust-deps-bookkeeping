@@ -34,5 +34,6 @@ This command could be difficult to implement since it requires calling git.
 It would be nice if we could run this tool as an independent script, without having to compile it locally.
 
 Ideas:
+
 - Follow the same process `rome` follows
 - Use the git address and run with `npx`

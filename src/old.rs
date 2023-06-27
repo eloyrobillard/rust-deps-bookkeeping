@@ -1,23 +1,47 @@
 use std::error::Error;
 
-use chrono::{DateTime, Utc, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use futures::future;
 use once_cell::sync::Lazy;
 
+use crate::package_json_parser::{get_deps_version_from_pkgs_field, get_deps_version_from_deps_field};
 use crate::registry::PackageMetadata;
-use crate::types::{PkgName, PkgNameAndVersion, Version, OldPkgDetails};
+use crate::types::{OldPkgDetails, PkgName, PkgNameAndVersion, Version};
 
-use super::package_json_parser::get_deps_version;
 use super::registry::pkg_info;
 
 // Use same date for all
 static DATE: Lazy<DateTime<Utc>> = Lazy::new(Utc::now);
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct PkgAgeDetails(PkgName, Version, DateTime<FixedOffset>, u32, PackageMetadata);
+pub struct PkgAgeDetails(
+    PkgName,
+    Version,
+    DateTime<FixedOffset>,
+    u32,
+    PackageMetadata,
+);
 
-pub async fn old(max_old: u32) -> Result<(Vec<OldPkgDetails>, Vec<OldPkgDetails>), Box<dyn Error>> {
-    let (deps_versions, dev_deps_versions) = get_deps_version()?;
+pub async fn old(
+    max_old: u32,
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+) -> Result<(Vec<OldPkgDetails>, Vec<OldPkgDetails>), Box<dyn Error>> {
+    let (deps_versions, dev_deps_versions) = get_deps_version_from_deps_field(path_pkg_json, path_lock_json)?;
+
+    Ok((
+        get_old_pkgs(max_old, deps_versions).await?,
+        get_old_pkgs(max_old, dev_deps_versions).await?,
+    ))
+}
+
+pub async fn old_monorepo(
+    max_old: u32,
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+    in_frontend: bool
+) -> Result<(Vec<OldPkgDetails>, Vec<OldPkgDetails>), Box<dyn Error>> {
+    let (deps_versions, dev_deps_versions) = get_deps_version_from_pkgs_field(path_pkg_json, path_lock_json, in_frontend)?;
 
     Ok((
         get_old_pkgs(max_old, deps_versions).await?,
@@ -49,14 +73,19 @@ fn filter_old(max_age: u32, data: Vec<PkgAgeDetails>) -> Vec<OldPkgDetails> {
                         let date_latest_version =
                             DateTime::parse_from_rfc3339(last_update_str.as_str()).unwrap();
 
-                        let age_latest_version = DATE.years_since(date_latest_version.into()).unwrap();
+                        let age_latest_version =
+                            DATE.years_since(date_latest_version.into()).unwrap();
 
                         Some(OldPkgDetails {
                             name,
                             version,
                             date_version,
                             age_version,
-                            latest_version: pkg_metadata.dist_tags.get("latest").unwrap().to_string(),
+                            latest_version: pkg_metadata
+                                .dist_tags
+                                .get("latest")
+                                .unwrap()
+                                .to_string(),
                             date_latest_version,
                             age_latest_version,
                         })
@@ -95,6 +124,8 @@ mod tests {
 
     use super::*;
 
+    static TEST_JSON_PATH: &str = "test-assets/";
+
     static DEFAULT_METADATA: Lazy<PackageMetadata> = Lazy::new(|| PackageMetadata {
         name: "".to_owned(),
         dist_tags: HashMap::from([("latest".to_owned(), "0.0.1".to_owned())]),
@@ -117,7 +148,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn old_test() -> Result<(), Box<dyn Error>> {
-        let maybe_old = old(4).await;
+        let maybe_old = old(4, Some(TEST_JSON_PATH), Some(TEST_JSON_PATH)).await;
 
         assert!(maybe_old.is_ok());
 
@@ -132,7 +163,8 @@ mod tests {
         assert!(old_dev_deps.iter().any(
             |OldPkgDetails {
                  name, date_version, ..
-             }| name == "file-loader" && date_version.to_string() == "2018-03-01 22:55:18.724 +00:00"
+             }| name == "file-loader"
+                && date_version.to_string() == "2018-03-01 22:55:18.724 +00:00"
         ));
 
         Ok(())
@@ -146,21 +178,30 @@ mod tests {
             PkgAgeDetails(
                 "ok".to_owned(),
                 "0.0.1".to_owned(),
-                FixedOffset::west_opt(5 * 3600).unwrap().with_ymd_and_hms(2022, 1, 1, 0, 0, 0).unwrap(),
+                FixedOffset::west_opt(5 * 3600)
+                    .unwrap()
+                    .with_ymd_and_hms(2022, 1, 1, 0, 0, 0)
+                    .unwrap(),
                 1,
                 DEFAULT_METADATA.clone(),
             ),
             PkgAgeDetails(
                 "old1".to_owned(),
                 "0.0.1".to_owned(),
-                FixedOffset::west_opt(5 * 3600).unwrap().with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap(),
+                FixedOffset::west_opt(5 * 3600)
+                    .unwrap()
+                    .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)
+                    .unwrap(),
                 23,
                 DEFAULT_METADATA.clone(),
             ),
             PkgAgeDetails(
                 "old2".to_owned(),
                 "0.0.1".to_owned(),
-                FixedOffset::west_opt(5 * 3600).unwrap().with_ymd_and_hms(2016, 1, 1, 0, 0, 0).unwrap(),
+                FixedOffset::west_opt(5 * 3600)
+                    .unwrap()
+                    .with_ymd_and_hms(2016, 1, 1, 0, 0, 0)
+                    .unwrap(),
                 7,
                 DEFAULT_METADATA.clone(),
             ),
@@ -174,19 +215,31 @@ mod tests {
                 OldPkgDetails {
                     name: "old1".to_owned(),
                     version: "0.0.1".to_owned(),
-                    date_version: FixedOffset::west_opt(5 * 3600).unwrap().with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap(),
+                    date_version: FixedOffset::west_opt(5 * 3600)
+                        .unwrap()
+                        .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)
+                        .unwrap(),
                     age_version: 23,
                     latest_version: "0.0.1".to_owned(),
-                    date_latest_version: FixedOffset::west_opt(0).unwrap().with_ymd_and_hms(2023, 6, 14, 19, 46, 38).unwrap(),
+                    date_latest_version: FixedOffset::west_opt(0)
+                        .unwrap()
+                        .with_ymd_and_hms(2023, 6, 14, 19, 46, 38)
+                        .unwrap(),
                     age_latest_version: 0,
                 },
                 OldPkgDetails {
                     name: "old2".to_owned(),
                     version: "0.0.1".to_owned(),
-                    date_version: FixedOffset::west_opt(5 * 3600).unwrap().with_ymd_and_hms(2016, 1, 1, 0, 0, 0).unwrap(),
+                    date_version: FixedOffset::west_opt(5 * 3600)
+                        .unwrap()
+                        .with_ymd_and_hms(2016, 1, 1, 0, 0, 0)
+                        .unwrap(),
                     age_version: 7,
                     latest_version: "0.0.1".to_owned(),
-                    date_latest_version: FixedOffset::west_opt(0).unwrap().with_ymd_and_hms(2023, 6, 14, 19, 46, 38).unwrap(),
+                    date_latest_version: FixedOffset::west_opt(0)
+                        .unwrap()
+                        .with_ymd_and_hms(2023, 6, 14, 19, 46, 38)
+                        .unwrap(),
                     age_latest_version: 0,
                 },
             ]

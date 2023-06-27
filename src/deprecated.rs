@@ -2,18 +2,21 @@ use std::error::Error;
 
 use futures::future;
 
-use crate::package_json_parser::get_deps_version;
+use crate::package_json_parser::{get_deps_version_from_deps_field, get_deps_version_from_pkgs_field};
 use crate::registry::{pkg_version_info, DeprecatedField, VersionObjectWithDeprecated};
 use crate::types::PkgNameAndVersion;
 
-pub async fn deprecated() -> Result<
+pub async fn deprecated(
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+) -> Result<
     (
         Vec<VersionObjectWithDeprecated>,
         Vec<VersionObjectWithDeprecated>,
     ),
     Box<dyn Error>,
 > {
-    let (deps_versions, dev_deps_versions) = get_deps_version()?;
+    let (deps_versions, dev_deps_versions) = get_deps_version_from_deps_field(path_pkg_json, path_lock_json)?;
 
     Ok((
         get_deprecated_pkgs(&deps_versions).await?,
@@ -21,10 +24,23 @@ pub async fn deprecated() -> Result<
     ))
 }
 
-pub async fn deprecated_prod() -> Result<Vec<VersionObjectWithDeprecated>, Box<dyn Error>> {
-    let (deps_versions, _) = get_deps_version()?;
+pub async fn deprecated_monorepo(
+    path_pkg_json: Option<&str>,
+    path_lock_json: Option<&str>,
+    in_frontend: bool
+) -> Result<
+    (
+        Vec<VersionObjectWithDeprecated>,
+        Vec<VersionObjectWithDeprecated>,
+    ),
+    Box<dyn Error>,
+> {
+    let (deps_versions, dev_deps_versions) = get_deps_version_from_pkgs_field(path_pkg_json, path_lock_json, in_frontend)?;
 
-    get_deprecated_pkgs(&deps_versions).await
+    Ok((
+        get_deprecated_pkgs(&deps_versions).await?,
+        get_deprecated_pkgs(&dev_deps_versions).await?,
+    ))
 }
 
 async fn get_deprecated_pkgs(
@@ -53,9 +69,11 @@ async fn get_deprecated_pkgs(
 mod tests {
     use super::*;
 
+    static TEST_JSON_PATH: &str = "test-assets/";
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn deprecated_test() -> Result<(), Box<dyn Error>> {
-        let deprecated = deprecated().await;
+        let deprecated = deprecated(Some(TEST_JSON_PATH), Some(TEST_JSON_PATH)).await;
 
         assert!(deprecated.is_ok());
 
