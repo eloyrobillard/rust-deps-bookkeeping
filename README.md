@@ -1,39 +1,46 @@
 # DEBS
 
-Dependency bookkeeping script
+Dependency bookkeeping script made with Rust
 
-## Concept
+## Getting Started
 
-Same as the script that we have in maia, but with less features, since some of them are already provided by `npm` and others can be difficult to implement (we'll leave it for version 2).
+1. Download the package using `npm install git@github.ibm.com:ReaQta-Frontend/debs.git`
+2. Run with `npx debs`. This will display the help menu.
 
-## Requirements
+## Features
 
-- This version should work from the top-level folder without having to specify the specific subfolder (using the mono repo setup)
-- It should use the public npm API instead of calling npm directly
+Similar to the `debs-bookkeeping` script in maia:
+
+Same:
+
+* checks old packages
+* checks deprecated packages
+* (Version 2) returns `git blame` for `package.json` with useful parameters
+
+Different:
+
+* Uses data from the [npm registry](https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md) as much as possible, instead of
+* REMOVED: does not check vulnerable dependencies, as this feature is already provided by `npm audit`
 
 ## CLI commands
 
 ### Version 1
 
-`debs old [--since [years]]`
+All commands come with the `-p --production` and `--path <PATH>` options:
+
+* setting `-p --production` will only show production packages
+* setting `--path` is useful in cases where the npm structure changes, or for selecting test `package(-lock).json` files
+
+`debs old [-s --since <YEARS>] [-p --production] [--path <PATH>]`
 
 Shows all dependencies older than the given number of years (by default 4)
 
-`debs deprecated [--production]`
+`debs deprecated [-p --production] [--path <PATH>]`
 
-Shows all deprecated dependencies marked as such in the `npm` registry. `--production` will only show production packages.
+Shows all deprecated dependencies marked as such in the `npm` registry.
 
 ### Version 2
 
-`debs blame [-a|-all| [--latest] [-d|-dependency [name]]`
+`debs blame [-a|-all| [--latest] [-d|-dependency [name]] [-p --production] [--path <PATH>]`
 
 This command could be difficult to implement since it requires calling git.
-
-## Research
-
-It would be nice if we could run this tool as an independent script, without having to compile it locally.
-
-Ideas:
-
-- Follow the same process `rome` follows
-- Use the git address and run with `npx`
