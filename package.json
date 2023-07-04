@@ -1,10 +1,9 @@
 {
   "name": "debs",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha",
   "bin": "bin/debs",
   "scripts": {
-    "preinstall": "node scripts/preinstall.js",
-    "postinstall": "node scripts/postinstall.js"
+    "preinstall": "node npm/preinstall.js"
   },
   "repository": {
     "type": "git",
@@ -13,10 +12,8 @@
   },
   "description": "debs is a tool for inspecting old and deprecated packages.",
   "files": [
-    "bin/debs",
-    "scripts/preinstall.js",
-    "scripts/postinstall.js",
+    "npm/*",
     "Cargo.toml",
-    "src/*"
+    "builds/*"
   ]
 }
