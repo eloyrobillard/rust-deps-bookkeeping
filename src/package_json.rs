@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
+use std::path::Path;
 
 use serde::{de::DeserializeOwned, Deserialize};
 
@@ -30,7 +31,7 @@ type InstalledDeps = Vec<PkgName>;
 type InstalledDevDeps = Vec<PkgName>;
 
 pub fn get_deps_names(
-    json_path: &str,
+    json_path: &Path,
 ) -> Result<(InstalledDeps, InstalledDevDeps), Box<dyn Error>> {
     let pkg_json = parse_package_json(json_path)?;
 
@@ -53,13 +54,13 @@ pub fn get_deps_names(
 /// This is useful for mono-repo structures, where dependencies' metadata
 /// is not present in the root package-lock's `dependencies` field.
 pub fn get_deps_version(
-    path_pkg_json: &str,
-    path_lock_json: &str,
+    path_pkg_json: &Path,
+    path_lock_json: &Path,
     in_frontend: bool,
 ) -> Result<(Vec<PkgNameAndVersion>, Vec<PkgNameAndVersion>), Box<dyn Error>> {
     let deps_lists: (InstalledDeps, InstalledDevDeps) = get_deps_names(path_pkg_json)?;
 
-    let pkgs_info = parse_package_lock(path_lock_json)?;
+    let mut pkgs_info = parse_package_lock(path_lock_json)?;
 
     let prefix = if in_frontend {
         "frontend/node_modules/"
@@ -68,8 +69,8 @@ pub fn get_deps_version(
     };
 
     Ok((
-        combine_deps_name_version(&pkgs_info.packages, &deps_lists.0, prefix),
-        combine_deps_name_version(&pkgs_info.packages, &deps_lists.1, prefix),
+        combine_deps_name_version(&mut pkgs_info.packages, deps_lists.0, prefix),
+        combine_deps_name_version(&mut pkgs_info.packages, deps_lists.1, prefix),
     ))
 }
 
@@ -82,40 +83,44 @@ pub fn get_deps_version(
 ///
 /// * `prefix`: prefix to the package name, usually `node_modules/` or `frontend/node_modules` for the frontend dependencies.
 fn combine_deps_name_version(
-    deps_info: &HashMap<PkgName, PackageLockDepInfo>,
-    deps_list: &[PkgName],
+    deps_info: &mut HashMap<PkgName, PackageLockDepInfo>,
+    deps_list: Vec<PkgName>,
     prefix: &str,
 ) -> Vec<PkgNameAndVersion> {
     deps_list
-        .iter()
+        .into_iter()
         .filter_map(|pkg_name| {
             deps_info
-                .get(format!("{}{}", prefix, pkg_name).as_str())
-                .and_then(|info| info.version.clone())
-                .map(|version| PkgNameAndVersion(pkg_name.clone(), version))
+                // getting a mutable reference to the entry in order to allow the use of `mem::take`
+                // `mem::take` will replace the entry with an empty field, which is okay
+                // because a package cannot be both in the production and development dependencies' list
+                // so we will never have to read this entry again (and we don't use this `deps_info` again)
+                .get_mut(format!("{}{}", prefix, pkg_name).as_str())
+                .and_then(|info| std::mem::take(&mut info.version))
+                .map(|version| PkgNameAndVersion(pkg_name, version))
         })
         .collect()
 }
 
-/// ## Arguments
-///
-/// - **path**: path to the `package.json`, of the form `path/to/` (with a final `/`!)
-pub fn parse_package_json(path: &str) -> Result<PackageJson, Box<dyn Error>> {
-    parse_file(format!("{path}package.json").as_str())
+pub fn parse_package_json(path: &Path) -> Result<PackageJson, Box<dyn Error>> {
+    parse_file(path.join("package.json").as_os_str())
 }
 
-/// ## Arguments
-///
-/// - **path**: path to the `package-lock.json`, of the form `path/to/` (with a final `/`!)
-fn parse_package_lock(path: &str) -> Result<PackageLockJson, Box<dyn Error>> {
-    parse_file(format!("{path}package-lock.json").as_str())
+fn parse_package_lock(path: &Path) -> Result<PackageLockJson, Box<dyn Error>> {
+    parse_file(path.join("package-lock.json").as_os_str())
 }
 
-fn parse_file<T: DeserializeOwned>(file_name: &str) -> Result<T, Box<dyn Error>> {
-    let file = File::open(file_name)?;
+fn parse_file<T: DeserializeOwned>(file_name: &std::ffi::OsStr) -> Result<T, Box<dyn Error>> {
+    let file = File::open(file_name).map_err(|_| {
+        Box::<dyn Error>::from(format!(
+            r#"package.json not found at "{fn}""#,
+            fn = file_name.to_str().unwrap()
+        ))
+    })?;
+
     let reader = BufReader::new(file);
 
-    // using `?` to coerce serde::Error to Box<dyn Error>
+    // using `?` to coerce serde_json::Error to Box<dyn Error>
     Ok(serde_json::from_reader(reader)?)
 }
 
@@ -268,7 +273,7 @@ mod tests {
 
     #[test]
     fn should_return_deps_names() {
-        let list = get_deps_names("test-assets/");
+        let list = get_deps_names(Path::new("test-assets/"));
 
         assert!(list.is_ok());
 
@@ -284,7 +289,7 @@ mod tests {
 
     #[test]
     fn deps_list_to_version_tuple_with_prefix_test() {
-        let deps_info = HashMap::from([(
+        let mut deps_info = HashMap::from([(
             "a".to_owned(),
             PackageLockDepInfo {
                 version: Some("1.0.0".to_owned()),
@@ -293,7 +298,7 @@ mod tests {
 
         let deps_list = vec!["a".to_owned()];
 
-        let pkg_name_and_version = combine_deps_name_version(&deps_info, &deps_list, "");
+        let pkg_name_and_version = combine_deps_name_version(&mut deps_info, deps_list, "");
 
         assert_eq!(
             pkg_name_and_version,
@@ -303,7 +308,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_monorepo_frontend_package_lock_test() {
-        let pkg_name_and_version = parse_lock("test-assets/monorepo/frontend/");
+        let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/frontend/"));
 
         assert!(pkg_name_and_version.contains(&PkgNameAndVersion(
             "react-refresh".to_owned(),
@@ -313,7 +318,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_monorepo_backend_package_lock_test() {
-        let pkg_name_and_version = parse_lock("test-assets/monorepo/backend/");
+        let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/backend/"));
 
         assert!(pkg_name_and_version.contains(&PkgNameAndVersion(
             "express".to_owned(),
@@ -323,7 +328,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_monorepo_common_package_json_test() {
-        let pkg_name_and_version = parse_lock("test-assets/monorepo/common/");
+        let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/common/"));
 
         assert!(pkg_name_and_version.contains(&PkgNameAndVersion(
             "lodash.uniq".to_owned(),
@@ -333,21 +338,21 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn parse_package_lock_test() {
-        let res = parse_package_lock("test-assets/");
+        let res = parse_package_lock(Path::new("test-assets/"));
 
         assert!(res.is_ok());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn should_return_error_on_missing_pkg_json() {
-        let res = parse_package_json("missing-path/");
+        let res = parse_package_json(Path::new("missing-path/"));
 
         assert!(res.is_err());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn should_return_error_on_missing_pkg_lock() {
-        let res = parse_package_lock("missing-path/");
+        let res = parse_package_lock(Path::new("missing-path/"));
 
         assert!(res.is_err());
     }
@@ -359,19 +364,19 @@ mod tests {
     /// ## Arguments
     ///
     /// - **folder**: path to the chosen workspace's `package.json` (not for the root `package-lock.json`!)
-    fn parse_lock(folder: &str) -> Vec<PkgNameAndVersion> {
+    fn parse_lock(folder: &Path) -> Vec<PkgNameAndVersion> {
         let deps_lists = get_deps_names(folder);
 
         assert!(deps_lists.is_ok());
 
-        let pkgs_info = parse_package_lock("test-assets/monorepo/");
+        let pkgs_info = parse_package_lock(Path::new("test-assets/monorepo/"));
 
         assert!(pkgs_info.is_ok());
 
-        let pkgs = pkgs_info.unwrap();
+        let mut pkgs = pkgs_info.unwrap();
 
         let prod_deps = deps_lists.unwrap().0;
 
-        combine_deps_name_version(&pkgs.packages, &prod_deps, "node_modules/")
+        combine_deps_name_version(&mut pkgs.packages, prod_deps, "node_modules/")
     }
 }

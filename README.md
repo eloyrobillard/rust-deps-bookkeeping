@@ -7,6 +7,13 @@ Dependency bookkeeping script made with Rust
 1. Download the package using `npm install git@github.ibm.com:ReaQta-Frontend/debs.git`
 2. Run with `npx debs`. This will display the help menu.
 
+## Development Guides
+
+The project has 2 Rust guides:
+
+* `DEV_GUIDE.md` which covers various Rust topics, like module hierarchy, unit testing and much more. This one tries to use examples from `debs` has much as possible
+* `ownership.md` which covers ownership in Rust (i.e. `Move` semantics and the borrow checker, EXCEPT lifetimes; a very important topic but I didn't use them in this project yet)
+
 ## Features
 
 Similar to the `debs-bookkeeping` script in maia:
