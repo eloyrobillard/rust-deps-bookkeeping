@@ -306,7 +306,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_monorepo_frontend_package_lock_test() {
         let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/frontend/"));
 
@@ -316,7 +316,7 @@ mod tests {
         )));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_monorepo_backend_package_lock_test() {
         let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/backend/"));
 
@@ -326,7 +326,7 @@ mod tests {
         )));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_monorepo_common_package_json_test() {
         let pkg_name_and_version = parse_lock(Path::new("test-assets/monorepo/common/"));
 
@@ -336,21 +336,21 @@ mod tests {
         )));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn parse_package_lock_test() {
         let res = parse_package_lock(Path::new("test-assets/"));
 
         assert!(res.is_ok());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_return_error_on_missing_pkg_json() {
         let res = parse_package_json(Path::new("missing-path/"));
 
         assert!(res.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_return_error_on_missing_pkg_lock() {
         let res = parse_package_lock(Path::new("missing-path/"));
 

@@ -78,12 +78,12 @@ pub struct OldPkgDetails {
 /// | **prod_pkgs_only:** | Ignore development dependencies. |
 /// | **path:**           | Path to the root package.json containing workspace names. |
 /// | **workspaces:**     | Workspaces to check installed dependencies and versions from. |
-pub async fn old(
+pub async fn get_old_packages(
     since: u32,
-    prod_pkgs_only: bool,
     path: &Path,
     workspaces: &[String],
     mut writer: impl std::io::Write,
+    include_development_packages: bool,
 ) -> Result<(), std::io::Error> {
     let deps_by_workspace: Vec<(Vec<PkgNameAndVersion>, Vec<PkgNameAndVersion>)> = workspaces
         .iter()
@@ -101,7 +101,7 @@ pub async fn old(
     let old_deps_by_workspace = future::join_all(
         deps_by_workspace
             .into_iter()
-            .map(|(prod, dev)| get_old_deps(since, (prod, dev))),
+            .map(|(prod, dev)| filter_old_packages(since, (prod, dev))),
     )
     .await
     .into_iter()
@@ -111,14 +111,14 @@ pub async fn old(
 
     for ((prod, dev), workspace) in old_deps_by_workspace {
         writeln!(writer, "\n[{workspace}] old packages:")?;
-        get_output((&prod, &dev), prod_pkgs_only, &mut writer)?;
+        get_output((&prod, &dev), &mut writer, include_development_packages)?;
     }
 
     Ok(())
 }
 
 /// Get dates for the package versions used in the project, and filter old ones.
-async fn get_old_deps(
+async fn filter_old_packages(
     since: u32,
     (prod_deps, dev_deps): (Vec<PkgNameAndVersion>, Vec<PkgNameAndVersion>),
 ) -> Result<(Vec<OldPkgDetails>, Vec<OldPkgDetails>), Box<dyn Error>> {
@@ -204,10 +204,21 @@ fn add_latest_version_info(pkgs: Vec<PkgAgeDetails>) -> Vec<OldPkgDetails> {
 /// Returns the full output for the `old` task, including workspace headers and statistics.
 fn get_output(
     (prod_old, dev_old): (&[OldPkgDetails], &[OldPkgDetails]),
-    prod_pkgs_only: bool,
     mut writer: impl std::io::Write,
+    include_development_packages: bool,
 ) -> Result<(), std::io::Error> {
-    if prod_pkgs_only {
+    if include_development_packages {
+        get_pkgs_output(prod_old, Some("production:"), &mut writer)?;
+        get_pkgs_output(dev_old, Some("development:"), &mut writer)?;
+
+        let num_old_prods = prod_old.len();
+        let num_old_devs = dev_old.len();
+
+        writeln!(writer, "\n  total: {num_old_prods} old dependenc{end_1}, {num_old_devs} old dev dependenc{end_2}",
+            end_1 = if num_old_prods == 1 { "y" } else { "ies" },
+            end_2 = if num_old_devs == 1 { "y" } else { "ies" }
+        )?;
+    } else {
         get_pkgs_output(prod_old, None, &mut writer)?;
 
         let num_old_pkgs = prod_old.len();
@@ -216,17 +227,6 @@ fn get_output(
             writer,
             "\n  total: {num_old_pkgs} old production dependencies",
         )?;
-    } else {
-        get_pkgs_output(prod_old, Some("production:"), &mut writer)?;
-        get_pkgs_output(dev_old, Some("development:"), &mut writer)?;
-
-        let num_old_prods = prod_old.len();
-        let num_old_devs = dev_old.len();
-
-        writeln!(writer, "\n  total: {num_old_prods} old dependenc{end_1}, {num_old_devs} old dev dependenc{end_2}",
-        end_1 = if num_old_prods == 1 { "y" } else { "ies" },
-        end_2 = if num_old_devs == 1 { "y" } else { "ies" }
-    )?;
     }
 
     Ok(())
@@ -366,8 +366,8 @@ mod tests {
         ]
     });
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn old_test() -> Result<(), Box<dyn Error>> {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_old_packages_test() -> Result<(), Box<dyn Error>> {
         let path = Path::new("./test-assets/monorepo/");
 
         let workspaces = vec![
@@ -378,7 +378,7 @@ mod tests {
 
         let mut chars = Vec::new();
 
-        old(4, false, path, &workspaces, &mut chars).await?;
+        get_old_packages(4, path, &workspaces, &mut chars, false).await?;
 
         let output = String::from_utf8(chars)?;
 
@@ -391,11 +391,11 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_get_old_deps() -> Result<(), Box<dyn Error>> {
         let pkg1 = PkgNameAndVersion("chartjs-plugin-datalabels".to_owned(), "0.3.0".to_owned());
         let pkg2 = PkgNameAndVersion("file-loader".to_owned(), "1.1.11".to_owned());
-        let maybe_old = get_old_deps(4, (vec![pkg1], vec![pkg2])).await;
+        let maybe_old = filter_old_packages(4, (vec![pkg1], vec![pkg2])).await;
 
         assert!(maybe_old.is_ok());
 
@@ -421,10 +421,10 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_filter_wrong_pkg_info() -> Result<(), Box<dyn Error>> {
         let pkg1 = PkgNameAndVersion("wrong-info".to_owned(), "A.3.0".to_owned());
-        let maybe_old = get_old_deps(4, (vec![pkg1], vec![])).await;
+        let maybe_old = filter_old_packages(4, (vec![pkg1], vec![])).await;
 
         assert!(maybe_old.is_ok());
 
@@ -443,7 +443,7 @@ mod tests {
 
         let mut bytes = Vec::new();
 
-        get_output((&in1, &in2), false, &mut bytes)?;
+        get_output((&in1, &in2), &mut bytes, true)?;
 
         let output = String::from_utf8(bytes).unwrap();
 
@@ -451,7 +451,7 @@ mod tests {
 
         let mut bytes = Vec::new();
 
-        get_output((&in1, &in2), true, &mut bytes)?;
+        get_output((&in1, &in2), &mut bytes, false)?;
 
         let output = String::from_utf8(bytes).unwrap();
 
@@ -473,7 +473,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_get_last_update() -> Result<(), Box<dyn Error>> {
         let PkgAgeDetails(pkg, _, last_update, ..) =
             to_pkg_date_tuple(PkgNameAndVersion("react".to_owned(), "18.2.0".to_owned())).await?;
@@ -485,7 +485,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_fail_to_get_last_update_of_fake_pkg() -> Result<(), Box<dyn Error>> {
         let res =
             to_pkg_date_tuple(PkgNameAndVersion("ReAcT".to_owned(), "18.2.0".to_owned())).await;
@@ -498,7 +498,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn should_fail_to_get_last_update_of_bad_version() -> Result<(), Box<dyn Error>> {
         let res =
             to_pkg_date_tuple(PkgNameAndVersion("react".to_owned(), "A.2.0".to_owned())).await;

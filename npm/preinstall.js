@@ -25,12 +25,14 @@ const cwd = process.cwd();
 const binaryPath = `${cwd}/builds/${target}/debs`;
 
 if (!existsSync(`${cwd}/bin`)) {
-  mkdirSync(`${cwd}/bin`,)
+  mkdirSync(`${cwd}/bin`);
 }
 
-copyFileSync(binaryPath, `${cwd}/bin/debs`)
+copyFileSync(binaryPath, `${cwd}/bin/debs`);
 
-rm(`${cwd}/src`, { recursive: true, force: true })
-rm(`${cwd}/test-assets`, { recursive: true, force: true })
-rm(`${cwd}/script`, { recursive: true, force: true })
-rm(`${cwd}/DEV_GUIDE.md`, { recursive: true, force: true })
+Promise.allSettled([
+  rm(`${cwd}/src`, { recursive: true, force: true }),
+  rm(`${cwd}/test-assets`, { recursive: true, force: true }),
+  rm(`${cwd}/script`, { recursive: true, force: true }),
+  rm(`${cwd}/DEV_GUIDE.md`, { recursive: true, force: true })
+]);

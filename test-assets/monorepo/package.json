@@ -1,40 +1,8 @@
 {
-  "name": "maia",
-  "version": "3.12.0",
-  "description": "Monolith javascript project that holds both the backend and frontend for Hive's dashboard.",
-  "private": true,
   "workspaces": [
     "common/",
     "frontend/",
     "backend/",
     "tools/utils/"
-  ],
-  "scripts": {
-    "start:pgadmin": "tools/scripts/start-pgadmin.sh",
-    "start:postgres": "tools/scripts/start-postgres.sh",
-    "start:rabbit": "tools/scripts/start-rabbit.sh",
-    "start:dev": "tools/scripts/dev.sh",
-    "start:staging": "tools/scripts/start-maia.sh",
-    "setup:test-db": "tools/scripts/setup-test-db.sh",
-    "setup:protected-secrets": "tools/scripts/setup-protected-secrets.sh",
-    "setup:workspaces": "tools/scripts/install-deps.sh",
-    "init": "tools/scripts/initial-setup.sh",
-    "ssh-tunnel": "tools/scripts/ssh-tunnel.sh",
-    "generate-certs": "tools/scripts/generate-certificates.sh",
-    "drones": "tools/scripts/drones.sh",
-    "debs": "tools/scripts/deps-bookkeeping.sh",
-    "build:image": "tools/scripts/build-maia.sh",
-    "lint": "rome check frontend/src common/ backend/app backend/tests",
-    "clean:postgres": "tools/scripts/cleanup-postgres.sh"
-  },
-  "devDependencies": {
-    "rome": "^12.1.3"
-  },
-  "engines": {
-    "npm": ">=8.0.0 <9.0.0",
-    "node": ">=16.0.0 <17.0.0"
-  },
-  "dependencies": {
-    "debs": "git+ssh://git@github.ibm.com:ReaQta-Frontend/debs.git"
-  }
+  ]
 }

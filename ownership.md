@@ -5,10 +5,11 @@
 The 2 most characteristic features of Rust's compiler are its Move semantics and borrow checker, which together constitute a model of ownership guaranteeing memory safety. In practice this means a few things:
 
 1. whatever you do with a pointer in Rust, it will never be null or point to an incorrect memory location.
-   1. This is completely irrelevant to anyone programming in a garbage-collected language, and so completely irrelevant to us Web devs.
-2. a single variable cannot be mutated from several place at once
+   > This is completely irrelevant to anyone programming in a garbage-collected language, and so completely irrelevant to us Web devs.
+   >
+2. a single variable cannot be mutated from several places at once
 
-The second item is extremely useful, because it means the following code can never occur:
+The second item is extremely helpful, because it means the following code can never occur:
 
 ```javascript
 const array = [0]
@@ -23,13 +24,26 @@ function addElToArray(el: number, array: number[]) {
 }
 ```
 
-More importantly, it also makes the following code impossible:
+But more importantly for daily use, it also makes the following code impossible:
 
 ```javascript
 const x = [0, 1, 2]
 const y = x
 
-console.log(x) // [Voice of Rust] Error, use of moved value: `ar`!
+console.log(x) // error: use of moved value!
+```
+
+``` go
+var n = 0
+
+var p1 *int = &n
+var p2 *int = &n
+
+*p1 = 3
+fmt.Println(n) // 3
+
+*p2 = 4
+fmt.Println(n) // 4
 ```
 
 Let's see why this error happens.
@@ -74,12 +88,9 @@ The `Copy` trait is a property of only those items that take less time/memory to
 ```rust
 let a = 1;
 let b = a; // copy only, no move necessary
-println!("{}", a); // OK
-
-let tp = (1, true, 'a'); // all elements of the tuple implement Copy
+println!("{}", a); // OKlet tp = (1, true, 'a'); // all elements of the tuple implement Copy
 let tp2 = tp; // tuple gets copied
 println!("{:?}", tp); // OK
-
 ```
 
 Other types, like vectors, are never copied because that could be extremely expensive. Instead, only the reference itself gets copied, along with some extra details. For instance, assigning a vector to a new variable copies pointer, length, and capacity (images from [Programming Rust, 2nd ed.](https://www.oreilly.com/library/view/programming-rust-2nd/9781492052586/)). The element themselves do not go anywhere.
@@ -100,7 +111,8 @@ error[E0382]: borrow of moved value: `x`
   --> main.rs:14:23
   |
 1 |     let x = vec![0, 1, 2];
-  |         - move occurs because `x` has type `Vec<i32>`, which does not implement the `Copy` trait
+  |         - move occurs because `x` has type `Vec<i32>`,
+              which does not implement the `Copy` trait
 2 |     let y = x;
   |             - value moved here
 3 |
@@ -115,7 +127,9 @@ Consider the following code:
 ```rust
 fn main() {
   let x = vec![0, 1, 2];
+
   println!("{:#?}", x);
+
   let y = x;
 }
 ```
@@ -127,7 +141,9 @@ fn foo(v: Vec<i32>) { }
 
 fn main() {
   let x = vec![0, 1, 2];
+
   foo(x);
+
   let y = x; // error[E0382]: use of moved value: `x`!
 }
 ```
@@ -139,7 +155,9 @@ fn foo(v: &Vec<i32>) { } // added `&` before Vec<i32>
 
 fn main() {
   let x = vec![0, 1, 2];
+
   foo(x);
+
   let y = x;
 }
 ```
@@ -154,7 +172,9 @@ fn foo(v: &Vec<i32>) { }
 
 fn main() {
   let x = vec![0, 1, 2];
-  foo(&x); // changed from `x`
+
+  foo(&x);
+
   let y = x;
 }
 ```
@@ -164,6 +184,17 @@ Finally, on the question of why we passed `x` itself to `println!` even though i
 ### `&mut`
 
 Another type of reference can be achieved with `&mut` which returns a **mutable** reference. Opposite to `&` references, there can only be a single `&mut` reference to a given variable. This is of course to prevent a variable getting accessed from all over the place all at once.
+
+``` rust
+error[E0499]: cannot borrow `x` as mutable more than once at a time
+  --> main.rs:14:15
+   |
+14 |   foo(&mut x, &mut x);
+   |   --- ------  ^^^^^^ second mutable borrow occurs here
+   |   |   |
+   |   |   first mutable borrow occurs here
+   |   first borrow later used by call
+```
 
 ### Borrow checker
 
@@ -177,7 +208,7 @@ With `&` and `&mut` we can define what the **borrow checker** is:
 
 `ref` is almost equivalent to `&`, except it is only used on the left side of variable declarations:
 
-``` rust
+```rust
 // ref_c1 and ref_c2 are equivalent
 let ref ref_c1 = c;
 let ref_c2 = &c;
@@ -189,7 +220,7 @@ let ref_c4 = &mut c;
 
 The [ref pattern](https://doc.rust-lang.org/rust-by-example/scope/borrow/ref.html): used when you want to destructure a field/member as a reference.
 
-``` rust
+```rust
 // `ref_to_x` is a reference to the `x` field of `point`.
 let Point { x: ref ref_to_x, y: _ } = point;
 
@@ -208,7 +239,6 @@ let (_, ref mut last) = mutable_tuple;
      bar(v); // error[E0382]: use of moved value: `v`
    }
    ```
-
 2. Trying to assign a variable with a vector element not implementing `Copy`:
 
    ```rust
@@ -241,7 +271,6 @@ let (_, ref mut last) = mutable_tuple;
      bar(v); // OK
    }
    ```
-
 2. Trying to assign a variable with a vector element not implementing `Copy`:
 
    ```rust
@@ -259,7 +288,6 @@ let (_, ref mut last) = mutable_tuple;
       let x = std::mem::replace(&mut v[0], substitute_str); // OK, replace value immediately
     }
    ```
-
 3. Looping over a vector, and trying to pass the vector to a function inside the loop:
 
    First incomplete solution
@@ -301,7 +329,7 @@ If we want a wait to take ownership of vector elements, we need a way to take th
 
 For vectors of Options, we can also use `Option::take` to automatically do the work for us:
 
-``` rust
+```rust
 let mut v = vec![Some("john".to_string()), None, Some("apple".to_string())];
 
 // mem::replace
@@ -318,7 +346,7 @@ let q = v[0].take();
 
 This is the least recommended way, but likely the simplest way, to solve move issues: just `.clone()` the value (for collections implementing the `Clone` trait)! This is analogous to what happens in C++ when re-assigning a vector, which creates a full copy of the pointer and data. In rust we have:
 
-``` rust
+```rust
 let v = vec![0];
 let x = v.clone(); // clone, not the original `v`
 let y = v; // OK
@@ -328,7 +356,7 @@ The issue with `.clone()` is obviously one of performance and memory use. It's a
 
 Cloning will often become tempting in cases where we want to move some value that only exists as a reference in the current scope. Typically:
 
-``` rust
+```rust
 // simply trying to change Vec<String> to Vec<Foo>
 // Foo takes a String as argument
 fn str_to_foo(v: &Vec<String>) -> Vec<Foo> {
@@ -342,7 +370,7 @@ fn str_to_foo(v: &Vec<String>) -> Vec<Foo> {
 This error occurs because we didn't move `v` into the function (we assume for good reasons), but we still want to change the type of its contents, which requires a move.
 Cloning makes an easy fix:
 
-``` rust
+```rust
 fn str_to_foo(v: &Vec<String>) -> Vec<Foo> {
     v.iter()
       // cloning also converts the reference to a normal value
@@ -355,7 +383,7 @@ In this case, there is no easy way to avoid cloning, except moving `v` instead o
 
 The `debs` project has a fairly good example of a situation where cloning really looked like the better solution:
 
-``` rust
+```rust
 // package_json.rs
 
 fn combine_deps_name_version(
@@ -377,7 +405,7 @@ fn combine_deps_name_version(
 
 This looked necessary because of how the function `combine_deps_name_version` gets invoked twice over the same `deps_info` HashMap (once for production dependencies, and once for development dependencies):
 
-``` rust
+```rust
 // package_json.rs get_deps_version
 combine_deps_name_version(&pkgs_info.packages, deps_lists.0, prefix);
 combine_deps_name_version(&pkgs_info.packages, deps_lists.1, prefix);
@@ -389,7 +417,7 @@ Out of habit I only use immutable variables (defined with `let` in Rust), but he
 Recall that we mentioned `mem::replace` and `mem::take` as ways to take ownership of some element of a collection. Also recall their use: `std::mem::take(&mut el, substitute_value)` and `std::mem::take(&mut el)`. We need to take a `&mut` (mutable reference) to the element, which means the element has to come from a collection that allows mutation.
 Let's make the necessary changes:
 
-``` rust
+```rust
 // package_json.rs
 
 fn combine_deps_name_version(
@@ -421,12 +449,12 @@ On the other hand we did have to pay by making our collection mutable. In our ca
   Both `iter` and `into_iter` return an iterator over a collection (e.g. vector) which can be used to `reduce`, `filter_map` and `flat_map_filter_post_prod_reduce` (the `post_prod` part may be fake).
   The difference between them:
 
-   * `iter_into` returns an iterator over the actual data
-   * `iter` returns an iterator over references (`&T`)
+* `iter_into` returns an iterator over the actual data
+* `iter` returns an iterator over references (`&T`)
 
   In practice (example from [an old blog post](https://web.archive.org/web/20210120233744/https://xion.io/post/code/rust-borrowchk-tricks.html)):
 
-  ``` rust
+```rust
   // error: cannot move out of borrowed content [E0507]
   Ok(results.iter().map(|r| r.ok().unwrap()).collect())
 
@@ -435,7 +463,7 @@ On the other hand we did have to pay by making our collection mutable. In our ca
 
   // actual fix
   Ok(results.into_iter().map(|r| r.ok().unwrap()).collect())
-  ```
+```
 
   NOTE: this doesn't mean you should never use `iter`. In fact, `iter` is the only way to iterate over a *reference* to a collection.
 

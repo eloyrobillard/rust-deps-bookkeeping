@@ -8,8 +8,8 @@ mod package_json;
 mod registry;
 mod types;
 
-use deprecated::deprecated;
-use old::old;
+use deprecated::get_deprecated_packages;
+use old::get_old_packages;
 use package_json::parse_package_json;
 
 /// Initializes a command line interface using the [`clap`] module.
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // `*` operator is used to deref a reference, here: &bool -> bool (same use as in C/C++)
                         // `&` creates an immutable reference to `workspaces`. There can be any amount of immutable refs at a single point in time.
                         // `&mut` would create a mutable reference. There can only be a single mut ref to something at a single point in time.
-                        Some(workspaces) => println!("{}", deprecated(*production_pkgs_only, &path, &workspaces).await),
+                        Some(workspaces) => println!("{}", get_deprecated_packages(&path, &workspaces, !(*production_pkgs_only)).await),
                     }
                 }
                 "old" => {
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         None => panic!("No workspaces found in package.json. Cannot read the path to the necessary dependency information."),
                         // passing stdout as `writer` to `old`, to showcase a different way to handle testing output than returning a String
                         // inside `old`'s test, we pass a Vec<u8> instead of stdout to collect the output
-                        Some(workspaces) => {old(since, *production_pkgs_only, &path, &workspaces, &mut std::io::stdout()).await?;},
+                        Some(workspaces) => {get_old_packages(since, &path, &workspaces, &mut std::io::stdout(), !(*production_pkgs_only)).await?;},
                     }
                 }
                 _ => unreachable!(),
