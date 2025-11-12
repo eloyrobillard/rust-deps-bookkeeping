@@ -19,7 +19,7 @@ Different:
 
 ## Getting Started
 
-1. Download the package using `npm install git@github.ibm.com:ReaQta-Frontend/debs.git`
+1. Download the package using `npm i git@github.com:eloyrobillard/rust-deps-bookkeeping.git`
 2. Run with `npx debs`. This will display the help menu.
 
 ## Development Guides
